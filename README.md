@@ -4,10 +4,8 @@ A backend system for creating wallets, depositing, withdrawing, and transferring
 
 ## Tech Stack
 
-- **Framework:** FastAPI (Python 3.12)
-- **Database:** PostgreSQL 16
-- **ORM:** SQLAlchemy 2.0
-- **Migrations:** Alembic
+- **Backend:** FastAPI (Python 3.12), PostgreSQL 16, SQLAlchemy 2.0, Alembic
+- **Frontend:** React 19 + Vite, React Router — plain fetch-based API client (no heavy state library needed)
 - **Auth:** JWT (access tokens) + rotating opaque refresh tokens
 - **Password hashing:** bcrypt (via passlib)
 
@@ -32,24 +30,33 @@ Database (PostgreSQL)
 ```
 
 ```
-app/
-├── main.py                 # FastAPI app, middleware, global exception handlers
-├── database.py              # SQLAlchemy engine/session
+app/                            # BACKEND
+├── main.py                   # FastAPI app, middleware, global exception handlers
+├── database.py                # SQLAlchemy engine/session
 ├── api/
-│   ├── deps.py               # auth, RBAC, rate-limit dependencies
-│   └── routers/               # auth.py, wallet.py, admin.py
+│   ├── deps.py                  # auth, RBAC, rate-limit dependencies
+│   └── routers/                  # auth.py, wallet.py, admin.py
 ├── core/
-│   ├── config.py              # env-based settings
-│   ├── security.py            # password hashing, JWT
-│   └── exceptions.py          # domain exception hierarchy
-├── models/                   # SQLAlchemy ORM models
-├── schemas/                  # Pydantic request/response models
-├── services/                  # business logic — wallet, transfer, transaction, admin, auth
-├── repositories/               # data access layer
-alembic/                       # DB migrations
+│   ├── config.py                 # env-based settings
+│   ├── security.py               # password hashing, JWT
+│   └── exceptions.py             # domain exception hierarchy
+├── models/                      # SQLAlchemy ORM models
+├── schemas/                     # Pydantic request/response models
+├── services/                     # business logic — wallet, transfer, transaction, admin, auth
+├── repositories/                  # data access layer
+alembic/                          # DB migrations
 tests/
 ├── unit/
-└── integration/               # incl. a concurrency test proving no race conditions
+└── integration/                  # incl. a concurrency test proving no race conditions
+
+frontend/                        # FRONTEND (React + Vite)
+├── src/
+│   ├── api/client.js               # fetch wrapper: auth headers, auto token refresh
+│   ├── context/AuthContext.jsx      # current-user state, login/register/logout
+│   ├── components/                  # Layout, Modal, ProtectedRoute
+│   └── pages/                        # Login, Register, Dashboard, Transactions, Admin
+├── Dockerfile                     # multi-stage build -> served by nginx
+└── nginx.conf
 ```
 
 ## Security Measures (this was the grading priority)
@@ -74,42 +81,49 @@ tests/
 
 ## Setup & Running Locally
 
+You need two terminals: one for the backend, one for the frontend.
+
 ### 1. Prerequisites
 - Python 3.12+
+- Node.js 18+ and npm
 - PostgreSQL 16 (running locally, or use Docker — see below)
 
-### 2. Clone and install
+### 2. Backend setup
 ```bash
-git clone <your-repo-url>
 cd wallet-system
 pip install -r requirements.txt
-```
 
-### 3. Configure environment
-```bash
 cp .env.example .env
 # Edit .env: set a real JWT_SECRET_KEY and your DATABASE_URL
-# Generate a secret with:
 python -c "import secrets; print(secrets.token_urlsafe(64))"
-```
 
-### 4. Create the database
-```bash
 createdb wallet_db
-# or: psql -c "CREATE DATABASE wallet_db;"
-```
-
-### 5. Run migrations
-```bash
 alembic upgrade head
-```
 
-### 6. Start the server
-```bash
 uvicorn app.main:app --reload
 ```
+Backend is now live at `http://localhost:8000` (interactive docs at `/api/docs`, dev only).
 
-The API is now live at `http://localhost:8000`. Interactive docs (dev only): `http://localhost:8000/api/docs`.
+### 3. Frontend setup (in a second terminal)
+```bash
+cd wallet-system/frontend
+npm install
+
+cp .env.example .env
+# .env already points VITE_API_URL at http://localhost:8000 — only change if your backend runs elsewhere
+
+npm run dev
+```
+Frontend is now live at `http://localhost:5173`. Open it in your browser, register an account, and start using the app.
+
+### Creating the first admin
+
+There's no public "become admin" endpoint (by design — that would be a huge security hole). Register a normal account through the UI, then promote it directly in the database:
+
+```sql
+UPDATE users SET role = 'ADMIN' WHERE email = 'you@example.com';
+```
+Log out and back in (or just refresh — the app re-checks your role) and the "Admin" tab appears in the sidebar.
 
 ## Running with Docker
 
@@ -118,7 +132,9 @@ cp .env.example .env   # edit JWT_SECRET_KEY at minimum
 docker compose up --build
 ```
 
-This spins up Postgres + the API together, runs migrations automatically, and serves on `http://localhost:8000`.
+This spins up Postgres + the API + the frontend together, runs migrations automatically, and serves:
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8000`
 
 ## Running Tests
 
@@ -158,14 +174,6 @@ All endpoints are prefixed `/api`. Full interactive schema at `/api/docs` (non-p
 - `POST /api/admin/wallets/{id}/adjust-balance/`
 - `GET  /api/admin/transactions`
 - `GET  /api/admin/transactions/{id}/investigate`
-
-### Creating the first admin
-
-There's no public "become admin" endpoint (by design — that would be a huge security hole). Promote a user directly in the database:
-
-```sql
-UPDATE users SET role = 'ADMIN' WHERE email = 'you@example.com';
-```
 
 ## Design Notes
 
